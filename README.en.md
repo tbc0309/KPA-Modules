@@ -14,6 +14,7 @@ Independent Magisk modules for KONKR Pocket Advance (`GT78-VN`, Android 12).
 
 - Module ID: `kpa_myuppy_font`
 - Maps the system sans-serif family to MYuppy fonts.
+- Installation checks common font overlays in other modules and stops with the conflicting module ID. Disable the conflicting module, reinstall and reboot. Script-driven font mounts may not be detected.
 - Provides two weights: 100–500 map to Regular and 600–900 to Bold; no separate italic face.
 - Uses existing Roboto paths for MYuppy Chinese and Latin glyphs; stock Noto CJK files remain unchanged.
 - Apps where PIF or similar tools hide modules fall back to stock fonts. On firmware 0828, the Google sign-in page opened with Play Integrity Fork v18 and Shamiko enabled. This does not establish an integrity verdict.
