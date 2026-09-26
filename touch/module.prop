@@ -1,0 +1,6 @@
+id=kpa_touch_guard
+name=KPA Touch Guard
+version=1.0.0
+versionCode=100
+author=IMNKS.COM
+description=Hold MODE for two seconds to toggle touchscreen input. Touch is enabled after every reboot.

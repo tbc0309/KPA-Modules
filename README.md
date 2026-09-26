@@ -1,0 +1,99 @@
+# KPA Modules
+
+[English](README.en.md) | [简体中文](README.md)
+
+适用于 KONKR Pocket Advance（`GT78-VN`、Android 12）的 Magisk 功能模块。各模块独立安装和更新。
+
+![安卓桌面首页](docs/images/kpa-android-home.png)
+
+![KPA 模块安装界面](docs/images/kpa-current-screen.png)
+
+## 模块
+
+### KPA MYuppy Font
+
+- 模块 ID：`kpa_myuppy_font`
+- 将系统无衬线字体映射为 MYuppy 字体。
+- 提供常规、粗体两档：100–500 映射到常规，600–900 映射到粗体；不提供独立斜体。
+- 使用系统原有 Roboto 文件路径，MYuppy 包含的中文和西文均优先显示；原版 Noto CJK 文件保持不变。
+- PIF 等工具隐藏模块后，相关应用回退到原版字体。0828 实测可与 Play Integrity Fork v18、Shamiko 同时启用并打开 Google 登录页，不代表通过完整性认证。
+- 采用 Magisk Systemless 方式，不修改系统分区。
+- 卸载或停用模块并重启即可恢复系统字体。
+
+### KPA RGB Control
+
+- 模块 ID：`kpa_rgb_control`
+
+根据 AYAHOME 第一排性能预设控制机身 RGB 状态灯：
+
+| 状态 | 灯效 |
+|---|---|
+| 省电 | 翠绿色慢速呼吸 |
+| 均衡 | 平滑七彩循环 |
+| 游戏 | 电光蓝慢速呼吸 |
+| 火力全开 | 洋红色快速脉冲 |
+| CPU 温度 ≥85°C 或电池温度 ≥50°C | 橙色快速呼吸 |
+| CPU 温度 ≥90°C 或电池温度 ≥55°C | 红色快闪 |
+| 充电、充满或电量 ≤15% | 交由 Android 系统控制原厂电池灯 |
+| 熄屏/锁屏 | 非电池提示状态下熄灭，亮屏后恢复 |
+
+亮屏状态优先级：危险温度 > 温度警告 > Android 系统电池灯 > 性能模式。模块只读取温度，不读取或修改风扇设置。
+
+RGB 控制使用 ARM64 原生守护程序。最大亮度为 `64/255`，各状态再按功能使用不同亮度，保证提醒有效、日常观感柔和。亮屏动画每 0.2 秒更新，性能模式每 2 秒检查，CPU/电池温度每 10 秒检查，电池状态每 5 秒检查；颜色未变化时不会重复写入灯光节点。充电、充满或低电量时模块停止写灯，由 Android 管理原厂电池提示。熄屏时不持有唤醒锁，系统深度休眠时进程会被冻结。
+
+配置文件：`/data/adb/kpa_rgb_control.conf`
+
+状态与日志：
+
+- `/data/adb/kpa_rgb_control.state`
+- `/data/adb/kpa_rgb_control.log`
+
+进入充电、充满或低电量状态时，模块会一次性恢复原厂对应颜色，解决性能灯与系统电池灯的事件竞争；交接后停止写灯。日志仅记录灯效状态变化和必要错误；同类 LED 写入错误最多每分钟记录一次。日志超过 16 KB 时自动压缩为最近约 8 KB，更新安装时会清除旧日志。
+
+### 性能与耗电
+
+在本机 8 核 MT6785V、约 3.8 GiB 内存上，以 1.0.0 首发构建实测：
+
+- 亮屏运行：单核 CPU 约 `0.3%`，折算整机约 `0.04%`。
+- 熄屏且 ADB 保持设备唤醒：单核 CPU 约 `0.53%`，折算整机约 `0.07%`。
+- 常驻内存约 `4.46 MB`，约占整机内存 `0.12%`。
+- 守护程序不持有唤醒锁，实际深度休眠时开销低于上述熄屏测试。
+
+这些数据属于接近零的后台开销，但并非绝对 `0%`。RGB 灯珠本身没有独立电流遥测，无法给出精确耗电量；模块通过熄屏灭灯、限制峰值亮度和减少传感器采样控制耗电。
+
+### KPA Touch Guard
+
+- 模块 ID：`kpa_touch_guard`
+- 长按 MODE 2 秒切换触摸屏，每次按住只切换一次。
+- 重启默认开启触摸；不修改手柄映射，MODE 原有功能保留。
+- Magisk 模块“操作”按钮可恢复触摸并停止监听，重启后恢复监听。
+- 已在 `BW03_20260828` 验证开机启动和触摸切换；不包含在 KPA-Root 预装中。
+
+程序采用事件等待，空闲时不轮询、不持有唤醒锁；本机运行时常驻内存约 3.6 MiB。只拦截触摸设备，程序退出时自动释放。状态保存在模块目录的 `state`，启动诊断写入 `startup.log`，每次启动覆盖，不记录触摸坐标。
+
+若需通过已授权电脑恢复触摸：
+
+```sh
+adb shell su -c 'sh /data/adb/modules/kpa_touch_guard/action.sh'
+```
+
+## 安装
+
+1. 从 [Releases](https://github.com/tbc0309/KPA-Modules/releases) 下载所需模块 ZIP。
+2. 在 Magisk 中选择“从本地安装”。
+3. 安装完成后重启。
+
+模块停用、启用或卸载后均建议重启。
+
+## 发布规则
+
+- 字体模块使用 `font-v*` 标签和独立 Release。
+- RGB 模块使用 `rgb-v*` 标签和独立 Release。
+- 触摸开关模块使用 `touch-v*` 标签和独立 Release。
+- 各模块分别构建、分别发布，不要求版本号同步。
+
+MYuppy 字体来源及版权说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+Copyright © 2026 我不是矿神。
+
+[IMNKS.COM](https://imnks.com/) · [GitHub](https://github.com/tbc0309)

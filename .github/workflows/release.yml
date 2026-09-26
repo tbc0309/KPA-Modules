@@ -1,0 +1,60 @@
+name: Release module
+
+on:
+  push:
+    tags:
+      - 'font-v*'
+      - 'rgb-v*'
+      - 'touch-v*'
+  workflow_dispatch:
+    inputs:
+      module:
+        description: Module to build
+        required: true
+        type: choice
+        options: [font, rgb, touch]
+      tag:
+        description: Release tag, for example font-v1.0.1
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Select module and tag
+        id: select
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            "module=${{ inputs.module }}" >> $env:GITHUB_OUTPUT
+            "tag=${{ inputs.tag }}" >> $env:GITHUB_OUTPUT
+          } elseif ('${{ github.ref_name }}' -like 'font-v*') {
+            "module=font" >> $env:GITHUB_OUTPUT
+            "tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          } elseif ('${{ github.ref_name }}' -like 'touch-v*') {
+            "module=touch" >> $env:GITHUB_OUTPUT
+            "tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          } else {
+            "module=rgb" >> $env:GITHUB_OUTPUT
+            "tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          }
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1 -Module '${{ steps.select.outputs.module }}'
+      - name: Publish independent release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Asset = (Get-ChildItem ./dist/*.zip).FullName
+          $Notes = switch ('${{ steps.select.outputs.module }}') { 'font' { 'FONT_RELEASE_NOTES.md' } 'touch' { 'TOUCH_RELEASE_NOTES.md' } default { 'RGB_RELEASE_NOTES.md' } }
+          $Name = switch ('${{ steps.select.outputs.module }}') { 'font' { 'KPA MYuppy Font' } 'touch' { 'KPA Touch Guard' } default { 'KPA RGB Control' } }
+          $Version = '${{ steps.select.outputs.tag }}' -replace '^(font|rgb|touch)-', ''
+          gh release create '${{ steps.select.outputs.tag }}' $Asset --notes-file $Notes --title "$Name $Version"
