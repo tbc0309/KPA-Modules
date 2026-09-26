@@ -1,0 +1,6 @@
+id=kpa_rgb_control
+name=KPA RGB Control
+version=1.0.0
+versionCode=100
+author=IMNKS.COM
+description=Power-optimized RGB lighting for AYAHOME performance modes and temperature alerts.

@@ -1,0 +1,6 @@
+*.sh text eol=lf
+*.go text eol=lf
+*.ps1 text eol=crlf
+*.ttf binary
+*.zip binary
+
