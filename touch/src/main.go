@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -14,6 +16,31 @@ import (
 )
 
 const evGrab = 0x40044590 // Linux EVIOCGRAB; closed descriptors release the grab.
+
+func unlockedPolicy(s string) bool {
+	awake, unlocked := false, false
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "showing=true" || line == "mIsShowing=true" {
+			return false
+		}
+		if line == "showing=false" {
+			unlocked = true
+		}
+		if line == "interactiveState=INTERACTIVE_STATE_AWAKE" {
+			awake = true
+		}
+	}
+	return awake && unlocked
+}
+
+func unlocked() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "dumpsys", "window", "policy").Output()
+	return err == nil && unlockedPolicy(string(out))
+}
+
 type event struct {
 	kind, code uint16
 	value      int32
@@ -70,6 +97,15 @@ func run(dir string) error {
 		return err
 	}
 	defer touch.Close()
+	powerPath, err := device("mtk-kpd")
+	if err != nil {
+		return err
+	}
+	power, err := os.Open(powerPath)
+	if err != nil {
+		return err
+	}
+	defer power.Close()
 	statePath := filepath.Join(dir, "state")
 	writeState := func(s string) { _ = os.WriteFile(statePath, []byte(s+"\n"), 0600) }
 	writeState("enabled")
@@ -82,7 +118,9 @@ func run(dir string) error {
 	fmt.Printf("MODE=%s TOUCH=%s\n", keyPath, touchPath)
 	keys := make(chan event, 16)
 	touches := make(chan event, 16)
-	failed := make(chan error, 2)
+	failed := make(chan error, 3)
+	powers := make(chan event, 16)
+	go readEvents(power, powers, failed)
 	go readEvents(key, keys, failed)
 	go readEvents(touch, touches, failed) // Drain touch events while grabbed.
 	stop := make(chan os.Signal, 1)
@@ -91,21 +129,33 @@ func run(dir string) error {
 	var deadline <-chan time.Time
 	var timer *time.Timer
 	var pressed, disabled, touching, pending bool
+	var wanted bool
+	var checks <-chan time.Time
+	var watch *time.Ticker
+	var resumeAfter time.Time
+	defer func() {
+		if watch != nil {
+			watch.Stop()
+		}
+	}()
 	// Probe mode exits automatically, releasing touch even if testing is interrupted.
 	var expiry <-chan time.Time
 	if len(os.Args) > 2 && os.Args[2] == "--test" {
 		expiry = time.After(90 * time.Second)
 	}
-	toggle := func() error {
-		var value uintptr = 1
-		if disabled {
-			value = 0
+	setDisabled := func(next bool) error {
+		if next == disabled {
+			return nil
+		}
+		var value uintptr
+		if next {
+			value = 1
 		}
 		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, touch.Fd(), evGrab, value)
 		if errno != 0 {
 			return errno
 		}
-		disabled = !disabled
+		disabled = next
 		if disabled {
 			writeState("disabled")
 		} else {
@@ -113,8 +163,49 @@ func run(dir string) error {
 		}
 		return nil
 	}
+	toggle := func() error {
+		// A locked or unreadable policy must never allow a new grab.
+		if !wanted && !unlocked() {
+			return nil
+		}
+		wanted = !wanted
+		if wanted {
+			watch = time.NewTicker(2 * time.Second)
+			checks = watch.C
+		} else {
+			watch.Stop()
+			watch = nil
+			checks = nil
+		}
+		return setDisabled(wanted)
+	}
 	for {
 		select {
+		case e := <-powers:
+			if e.code == 116 && e.value == 1 {
+				pending = false
+				resumeAfter = time.Now().Add(3 * time.Second)
+				if timer != nil {
+					timer.Stop()
+				}
+				deadline = nil
+				if err := setDisabled(false); err != nil {
+					return err
+				}
+			}
+		case <-checks:
+			// Poll only while a disabled preference is retained; never hold a wake lock.
+			safe := unlocked()
+			if !safe || time.Now().Before(resumeAfter) {
+				pending = false
+				if err := setDisabled(false); err != nil {
+					return err
+				}
+			} else if !touching {
+				if err := setDisabled(wanted); err != nil {
+					return err
+				}
+			}
 		case <-stop:
 			return nil
 		case <-expiry:

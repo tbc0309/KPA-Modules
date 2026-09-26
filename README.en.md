@@ -66,10 +66,11 @@ This is near-zero background overhead, not literal `0%`. The device exposes no s
 - Module ID: `kpa_touch_guard`
 - Hold MODE for 2 seconds to toggle touch; each hold triggers only once.
 - Touch is enabled after every reboot. Controller mappings and the original MODE behavior remain unchanged.
+- Locking or turning off the screen restores touch. Unlocking restores the previous disabled preference without interrupting an active touch gesture.
 - The Magisk Action button restores touch and stops monitoring. Reboot to resume monitoring.
 - Startup and toggling tested on `BW03_20260828`. Not bundled with KPA-Root.
 
-The daemon waits for input events without idle polling or wake locks. Resident memory measured at about 3.6 MiB on the tested device. Only the touchscreen is grabbed; exiting releases it automatically. The module directory contains `state` and a `startup.log` overwritten on each startup. Touch coordinates are not logged.
+Keys use event-driven monitoring without wake locks. There is no polling while touch is enabled; a retained disabled preference checks the lock state every 2 seconds. Failed checks restore touch. Pressing the power button restores touch immediately; other lock methods have a detection delay. Only the touchscreen is grabbed; exiting releases it automatically. The module directory contains `state` and a `startup.log` overwritten on each startup. Touch coordinates are not logged.
 
 Restore touch from an authorized computer:
 

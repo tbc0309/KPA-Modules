@@ -57,4 +57,13 @@ jobs:
           $Notes = switch ('${{ steps.select.outputs.module }}') { 'font' { 'FONT_RELEASE_NOTES.md' } 'touch' { 'TOUCH_RELEASE_NOTES.md' } default { 'RGB_RELEASE_NOTES.md' } }
           $Name = switch ('${{ steps.select.outputs.module }}') { 'font' { 'KPA MYuppy Font' } 'touch' { 'KPA Touch Guard' } default { 'KPA RGB Control' } }
           $Version = '${{ steps.select.outputs.tag }}' -replace '^(font|rgb|touch)-', ''
-          gh release create '${{ steps.select.outputs.tag }}' $Asset --notes-file $Notes --title "$Name $Version"
+          $Tag = '${{ steps.select.outputs.tag }}'
+          gh release view $Tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $Tag $Asset --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed.' }
+            gh release edit $Tag --notes-file $Notes --title "$Name $Version"
+          } else {
+            gh release create $Tag $Asset --notes-file $Notes --title "$Name $Version"
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release publishing failed.' }
