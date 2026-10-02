@@ -79,6 +79,16 @@ RGB 控制使用 ARM64 原生守护程序。最大亮度为 `64/255`，各状态
 adb shell su -c 'sh /data/adb/modules/kpa_touch_guard/action.sh'
 ```
 
+### KPA Sitronix Fix
+
+- 模块 ID：`kpa_sitronix_fix`
+- 修复 `BW03_20260828` 上 Sitronix 健康监控线程在息屏后持续消耗 CPU 的问题。
+- 只通过驱动自带的 `stmt` 节点暂停健康监控，不关闭触摸输入、不修改 boot 或系统分区，也没有常驻进程。
+- 卸载时恢复监控；重启后模块会再次应用修复。
+- 已在纯净 0730、0813、0828 系统以及 Root 后的多轮锁屏、解锁和重启场景完成实机验证。
+
+暂停监控会同时停用驱动的自动异常复位。如果触摸以后失去响应，重启或卸载模块即可恢复默认行为。完整实测、OTA 差异和原因分析见 [BW03_20260828 Sitronix 息屏耗电分析](docs/SITRONIX_0828_POWER_ANALYSIS_CN.md)。
+
 ## 安装
 
 1. 从 [Releases](https://github.com/tbc0309/KPA-Modules/releases) 下载所需模块 ZIP。
@@ -92,6 +102,7 @@ adb shell su -c 'sh /data/adb/modules/kpa_touch_guard/action.sh'
 - 字体模块使用 `font-v*` 标签和独立 Release。
 - RGB 模块使用 `rgb-v*` 标签和独立 Release。
 - 触摸开关模块使用 `touch-v*` 标签和独立 Release。
+- Sitronix 修复模块使用 `sitronix-v*` 标签和独立 Release。
 - 各模块分别构建、分别发布，不要求版本号同步。
 
 MYuppy 字体来源及版权说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

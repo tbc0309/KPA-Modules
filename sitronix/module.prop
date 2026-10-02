@@ -1,0 +1,6 @@
+id=kpa_sitronix_fix
+name=KPA Sitronix Fix
+version=1.0.0
+versionCode=100
+author=IMNKS.COM
+description=Pauses the faulty Sitronix health-monitor loop without disabling touchscreen input.

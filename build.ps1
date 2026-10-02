@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('all','font','rgb','touch')][string]$Module = 'all')
+param([ValidateSet('all','font','rgb','touch','sitronix')][string]$Module = 'all')
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -69,5 +69,13 @@ if ($Module -in @('all','rgb')) {
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed.' }
     $Output = Join-Path $Dist "KPA_RGB_Control_v$Version.zip"
     Compress-Module $RgbDir $Output
+    Write-Host "Built $Output"
+}
+
+if ($Module -in @('all','sitronix')) {
+    $FixDir = Join-Path $ProjectRoot 'sitronix'
+    $Version = Get-ModuleVersion $FixDir
+    $Output = Join-Path $Dist "KPA_Sitronix_Fix_v$Version.zip"
+    Compress-Module $FixDir $Output
     Write-Host "Built $Output"
 }

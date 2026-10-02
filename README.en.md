@@ -79,6 +79,16 @@ Restore touch from an authorized computer:
 adb shell su -c 'sh /data/adb/modules/kpa_touch_guard/action.sh'
 ```
 
+### KPA Sitronix Fix
+
+- Module ID: `kpa_sitronix_fix`
+- Addresses the Sitronix health-monitor thread consuming CPU while the screen is off on `BW03_20260828`.
+- Uses the driver's own `stmt` control to pause only health monitoring. It does not disable touch input, alter boot, modify system partitions, or leave a resident process.
+- Uninstalling restores monitoring; the module reapplies the fix after each reboot.
+- Verified on stock 0730, 0813 and 0828 builds, followed by repeated rooted reboot, screen-off and unlock cycles.
+
+Pausing monitoring also disables the driver's automatic recovery check. If touch later stops responding, reboot or uninstall the module to restore default behavior. The detailed device measurements and OTA comparison are documented in [Chinese](docs/SITRONIX_0828_POWER_ANALYSIS_CN.md).
+
 ## Installation
 
 1. Download the required ZIP from [Releases](https://github.com/tbc0309/KPA-Modules/releases).
@@ -92,6 +102,7 @@ A reboot is also recommended after enabling, disabling or removing a module.
 - Font releases use `font-v*` tags.
 - RGB releases use `rgb-v*` tags.
 - Touch Guard releases use `touch-v*` tags.
+- Sitronix Fix releases use `sitronix-v*` tags.
 - Each module is built and released independently.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for MYuppy font attribution.
