@@ -44,6 +44,7 @@ type controller struct {
 	lastB              int
 	lastState          string
 	lastErrorLog       time.Time
+	retryAfter         time.Time
 	mode               int
 	capacity           int
 	batteryStatus      string
@@ -59,8 +60,10 @@ var localZone = time.FixedZone("UTC+8", 8*60*60)
 var modeMarker = []byte(`name="fanMode" value="`)
 
 const (
-	cpuTempPath     = "/sys/class/thermal/thermal_zone3/temp" // mtktscpu
-	batteryTempPath = "/sys/class/thermal/thermal_zone0/temp" // mtktsbattery
+	// KPA CPU 温度节点 / KPA CPU thermal node (mtktscpu).
+	cpuTempPath = "/sys/class/thermal/thermal_zone3/temp"
+	// KPA 电池温度节点 / KPA battery thermal node (mtktsbattery).
+	batteryTempPath = "/sys/class/thermal/thermal_zone0/temp"
 )
 
 func defaultConfig() config {
@@ -182,11 +185,22 @@ func (c *controller) writeRawLED(r, g, b int) {
 	if r == c.lastR && g == c.lastG && b == c.lastB {
 		return
 	}
-	if writeFileValue(c.red, r) != nil || writeFileValue(c.green, g) != nil || writeFileValue(c.blue, b) != nil {
+	if time.Now().Before(c.retryAfter) {
+		return
+	}
+	// 尝试写入全部颜色通道，仅在全部成功后更新缓存。
+	// Attempt all channels. Cache only a complete successful write.
+	errR := writeFileValue(c.red, r)
+	errG := writeFileValue(c.green, g)
+	errB := writeFileValue(c.blue, b)
+	if errR != nil || errG != nil || errB != nil {
 		if time.Since(c.lastErrorLog) >= time.Minute {
 			appendLog("error=led_write_failed")
 			c.lastErrorLog = time.Now()
 		}
+		c.lastR, c.lastG, c.lastB = -1, -1, -1
+		c.retryAfter = time.Now().Add(time.Second)
+		return
 	}
 	c.lastR, c.lastG, c.lastB = r, g, b
 }
@@ -195,7 +209,8 @@ func (c *controller) off() {
 	c.writeLED(0, 0, 0)
 }
 
-// releaseLED lets Android own the next battery-light update.
+// releaseLED 清除颜色缓存，让 Android 后续电池灯更新生效。
+// releaseLED clears the color cache for Android's subsequent battery-light updates.
 func (c *controller) releaseLED() {
 	c.lastR, c.lastG, c.lastB = -1, -1, -1
 }
@@ -296,6 +311,7 @@ func (c *controller) rainbowStep() {
 	default:
 		r, b = 255, falling
 	}
+	// 彩虹灯效的峰值亮度低于温度警告和火力全开模式。
 	// Rainbow uses a softer peak than warnings and Full Power mode.
 	c.writeLED(r*200/255, g*200/255, b*200/255)
 	c.phase = (c.phase + 1) % 60
@@ -352,6 +368,16 @@ func (c *controller) updateEffect() {
 }
 
 func main() {
+	// 单实例锁防止重复启动的进程争抢 LED 控制权。
+	// A single-instance lock prevents duplicate processes from competing for LED ownership.
+	lock, err := os.OpenFile("/data/adb/kpa_rgb_control.lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return
+	}
+	defer lock.Close()
+	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		return
+	}
 	waitForBoot()
 	time.Sleep(3 * time.Second)
 
@@ -383,21 +409,42 @@ func main() {
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		<-signals
+	defer signal.Stop(signals)
+	defer func() {
+		c.retryAfter = time.Time{}
+		c.releaseLED()
 		c.off()
 		_ = os.WriteFile(statePath, []byte("stopped\n"), 0644)
-		os.Exit(0)
 	}()
+	// 状态采样独立于动画速度，保留默认 200 毫秒灯效刷新，
+	// 屏幕、模式每 2 秒检查，电池每 5 秒检查，温度每 10 秒检查。
+	// State sampling is independent of animation speed. Preserve existing
+	// 200 ms effects and 2/5/10 second screen, battery and temperature checks.
+	var nextScreen, nextMode, nextBattery, nextTemperature time.Time
+	wait := func(duration time.Duration) bool {
+		timer := time.NewTimer(duration)
+		defer timer.Stop()
+		select {
+		case <-signals:
+			return false
+		case <-timer.C:
+			return true
+		}
+	}
 
 	for {
-		if c.tick%10 == 0 {
+		now := time.Now()
+		if !now.Before(nextScreen) {
 			c.screenOn = screenIsOn()
+			nextScreen = now.Add(2 * time.Second)
 		}
 		if !c.screenOn {
 			c.updateEffect()
-			// Android freezes this process during suspend; no wake lock is held.
-			time.Sleep(5 * time.Second)
+			// 系统挂起时进程不执行，此处不持有唤醒锁。
+			// This process does not run during system suspend; no wake lock is held.
+			if !wait(5 * time.Second) {
+				return
+			}
 			c.sampleBattery()
 			c.screenOn = screenIsOn()
 			if c.screenOn {
@@ -406,19 +453,25 @@ func main() {
 			}
 			continue
 		}
-		if c.tick%10 == 0 {
+		if !now.Before(nextMode) {
 			c.mode = detectMode()
+			nextMode = now.Add(2 * time.Second)
 		}
-		// Fast battery handoff keeps Android's charging and warning lights authoritative.
-		if c.tick%25 == 0 {
+		// 定期检测电池状态，及时交还充电和低电量灯控制权。
+		// Periodically sample battery state to hand charging and low-battery lights back to Android.
+		if !now.Before(nextBattery) {
 			c.sampleBattery()
+			nextBattery = now.Add(5 * time.Second)
 		}
-		if c.tick%50 == 0 {
+		if !now.Before(nextTemperature) {
 			c.sampleTemperatures()
+			nextTemperature = now.Add(10 * time.Second)
 		}
 		c.updateEffect()
 		c.tick++
-		time.Sleep(c.cfg.interval)
+		if !wait(c.cfg.interval) {
+			return
+		}
 		if c.tick > 1000000 {
 			c.tick = 0
 		}

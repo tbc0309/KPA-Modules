@@ -1,6 +1,10 @@
+.gitattributes text eol=lf
 *.sh text eol=lf
 *.go text eol=lf
+*.conf text eol=lf
+module.prop text eol=lf
+updates/*.json text eol=lf
+updates/*.md text eol=lf
 *.ps1 text eol=crlf
 *.ttf binary
 *.zip binary
-

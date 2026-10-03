@@ -6,10 +6,10 @@ ui_print " KONKR Pocket Advance RGB performance LED"
 ui_print "========================================"
 
 CONF=/data/adb/kpa_rgb_control.conf
-cp "$MODPATH/config.default.conf" "$CONF"
+[ -f "$CONF" ] || cp "$MODPATH/config.default.conf" "$CONF"
 chmod 0644 "$CONF"
 rm -f /data/adb/kpa_rgb_control.state /data/adb/kpa_rgb_control.log
-ui_print "- Created config: $CONF"
+ui_print "- Configuration preserved: $CONF"
 
 set_perm "$MODPATH/service.sh" 0 0 0755
 set_perm "$MODPATH/bin/kpa_rgb_daemon" 0 0 0755

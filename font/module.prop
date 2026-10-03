@@ -4,3 +4,4 @@ version=1.0.1
 versionCode=101
 author=IMNKS.COM
 description=Systemless MYuppy font mapping for KONKR Pocket Advance Android 12.
+updateJson=https://raw.githubusercontent.com/tbc0309/KPA-Modules/main/updates/font.json

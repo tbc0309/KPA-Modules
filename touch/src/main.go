@@ -15,7 +15,9 @@ import (
 	"time"
 )
 
-const evGrab = 0x40044590 // Linux EVIOCGRAB; closed descriptors release the grab.
+// Linux EVIOCGRAB：关闭文件描述符会自动释放独占，恢复触摸。
+// Linux EVIOCGRAB: closing the descriptor releases the grab and restores touch.
+const evGrab = 0x40044590
 
 func unlockedPolicy(s string) bool {
 	awake, unlocked := false, false
@@ -42,8 +44,8 @@ func unlocked() bool {
 }
 
 type event struct {
-	kind, code uint16
-	value      int32
+	code  uint16
+	value int32
 }
 
 func device(name string) (string, error) {
@@ -58,14 +60,16 @@ func device(name string) (string, error) {
 }
 
 func readEvents(f *os.File, out chan<- event, failed chan<- error) {
-	var b [24]byte // ARM64 input_event: timeval + type/code/value.
+	// ARM64 输入事件布局：时间戳、类型、代码和值，共 24 字节。
+	// ARM64 input_event layout: timeval + type/code/value, 24 bytes total.
+	var b [24]byte
 	for {
 		if _, err := io.ReadFull(f, b[:]); err != nil {
 			failed <- err
 			return
 		}
 		if binary.LittleEndian.Uint16(b[16:18]) == 1 {
-			out <- event{1, binary.LittleEndian.Uint16(b[18:20]), int32(binary.LittleEndian.Uint32(b[20:24]))}
+			out <- event{binary.LittleEndian.Uint16(b[18:20]), int32(binary.LittleEndian.Uint32(b[20:24]))}
 		}
 	}
 }
@@ -122,7 +126,9 @@ func run(dir string) error {
 	powers := make(chan event, 16)
 	go readEvents(power, powers, failed)
 	go readEvents(key, keys, failed)
-	go readEvents(touch, touches, failed) // Drain touch events while grabbed.
+	// 独占触摸时仍读取事件，避免队列积压并跟踪手指抬起。
+	// Drain events while grabbed to avoid queue buildup and track finger release.
+	go readEvents(touch, touches, failed)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(stop)
@@ -138,6 +144,7 @@ func run(dir string) error {
 			watch.Stop()
 		}
 	}()
+	// 测试模式自动退出，避免测试中断后持续禁用触摸。
 	// Probe mode exits automatically, releasing touch even if testing is interrupted.
 	var expiry <-chan time.Time
 	if len(os.Args) > 2 && os.Args[2] == "--test" {
@@ -164,6 +171,7 @@ func run(dir string) error {
 		return nil
 	}
 	toggle := func() error {
+		// 锁屏或状态读取失败时，禁止新增触摸独占。
 		// A locked or unreadable policy must never allow a new grab.
 		if !wanted && !unlocked() {
 			return nil
@@ -194,8 +202,14 @@ func run(dir string) error {
 				}
 			}
 		case <-checks:
+			// 仅在保留禁用偏好时轮询，不持有唤醒锁。
 			// Poll only while a disabled preference is retained; never hold a wake lock.
-			safe := unlocked()
+			// 背光关闭时直接恢复触摸，省去无用的系统查询；保持两秒唤醒检查。
+			// With the backlight off, touch must be restored; querying WindowManager
+			// adds no useful information. Keep the 2 second wake/unlock response.
+			backlight, readErr := os.ReadFile("/sys/class/leds/lcd-backlight/brightness")
+			screenOff := readErr == nil && strings.TrimSpace(string(backlight)) == "0"
+			safe := !screenOff && unlocked()
 			if !safe || time.Now().Before(resumeAfter) {
 				pending = false
 				if err := setDisabled(false); err != nil {
@@ -213,7 +227,9 @@ func run(dir string) error {
 		case err := <-failed:
 			return fmt.Errorf("input disconnected: %w", err)
 		case e := <-touches:
-			if e.code == 330 { // BTN_TOUCH: never grab a finger mid-gesture.
+			// BTN_TOUCH：手指抬起后才执行独占，避免中断正在进行的手势。
+			// BTN_TOUCH: wait for finger release before grabbing, avoiding interrupted gestures.
+			if e.code == 330 {
 				touching = e.value != 0
 				if !touching && pending {
 					pending = false
@@ -225,7 +241,7 @@ func run(dir string) error {
 		case e := <-keys:
 			if e.code != 316 {
 				continue
-			} // BTN_MODE
+			} // BTN_MODE：只处理 MODE 按键 / Handle only the MODE button.
 			if e.value == 1 && !pressed {
 				pressed = true
 				timer = time.NewTimer(2 * time.Second)

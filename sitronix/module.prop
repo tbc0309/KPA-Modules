@@ -4,3 +4,4 @@ version=1.0.0
 versionCode=100
 author=IMNKS.COM
 description=Pauses the faulty Sitronix health-monitor loop without disabling touchscreen input.
+updateJson=https://raw.githubusercontent.com/tbc0309/KPA-Modules/main/updates/sitronix.json

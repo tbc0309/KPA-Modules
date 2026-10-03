@@ -4,6 +4,7 @@ check_font_conflicts() {
   for root in "$@"; do
     for module in "$root"/*; do
       [ -d "$module" ] || continue
+      # 跳过本模块升级；已停用或待移除的模块下次启动不会挂载。
       # Updating this module is safe; disabled/removed modules do not mount next boot.
       [ "${module##*/}" = kpa_myuppy_font ] && continue
       [ -f "$module/disable" ] && continue
